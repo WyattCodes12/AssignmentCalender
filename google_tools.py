@@ -13,6 +13,7 @@ Google account for the calendar and forward school mail there.
 """
 import base64
 import hashlib
+import json
 import os
 import re
 import sys
@@ -43,6 +44,15 @@ def _service(name, version):
 
     token_path = os.path.join(HERE, "token.json")
     creds = None
+    if os.environ.get("GOOGLE_TOKEN_JSON"):  # headless (GitHub Actions): token stored as a secret
+        creds = Credentials.from_authorized_user_info(json.loads(os.environ["GOOGLE_TOKEN_JSON"]), SCOPES)
+        if not creds.valid:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                raise SystemExit(f"Google token refresh failed ({e}). Re-run `python google_tools.py` locally "
+                                 "and update the GOOGLE_TOKEN_JSON secret.")
+        return build(name, version, credentials=creds, cache_discovery=False)
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     if not creds or not creds.valid:
@@ -159,3 +169,9 @@ def sync_calendar(assignments, calendar_id="primary"):
             cal.events().update(calendarId=calendar_id, eventId=body["id"], body=body).execute()
             updated += 1
     return created, updated
+
+
+if __name__ == "__main__":
+    # Run once locally to do the browser consent and write token.json.
+    _service("calendar", "v3")
+    print("Saved token.json")
