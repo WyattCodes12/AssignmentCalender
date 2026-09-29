@@ -15,6 +15,7 @@ import base64
 import hashlib
 import os
 import re
+import sys
 from datetime import timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,19 +59,47 @@ def _service(name, version):
     return build(name, version, credentials=creds, cache_discovery=False)
 
 
-def urgent_emails(days=7, limit=25):
-    """Recent emails that are flagged important, or are unread and match urgent keywords."""
-    gmail = _service("gmail", "v1")
-    ids = gmail.users().messages().list(
-        userId="me", q=f"newer_than:{days}d in:inbox -category:promotions -category:social", maxResults=100
-    ).execute().get("messages", [])
+# Headers that still name the original UCSD mailbox after Gmail auto-forwarding.
+# Forwarded mail keeps the original To/Cc and gets an X-Forwarded-For header.
+ADDRESS_HEADERS = ["To", "Cc", "Delivered-To", "X-Original-To", "X-Forwarded-For", "X-Forwarded-To"]
+MAX_SCANNED = 300
 
-    found = []
+
+def _from_school(headers, school):
+    """True if the message was addressed to / forwarded from the school mailbox.
+
+    `school` is a full address (you@ucsd.edu) or a domain (@ucsd.edu), case-insensitive.
+    """
+    blob = " ".join(headers.get(h, "") for h in ADDRESS_HEADERS).lower()
+    return school.lower() in blob
+
+
+def urgent_emails(days=7, limit=25, school="@ucsd.edu"):
+    """Urgent-looking emails that arrived via the school mailbox (forwarded into this account).
+
+    Recent emails that are flagged important, or unread and matching urgent keywords.
+    """
+    gmail = _service("gmail", "v1")
+    ids, token = [], None
+    while len(ids) < MAX_SCANNED:
+        resp = gmail.users().messages().list(
+            userId="me", q=f"newer_than:{days}d in:inbox -category:promotions -category:social",
+            maxResults=100, pageToken=token,
+        ).execute()
+        ids += resp.get("messages", [])
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+
+    found, matched = [], 0
     for m in ids:
         msg = gmail.users().messages().get(
-            userId="me", id=m["id"], format="metadata", metadataHeaders=["Subject", "From"]
+            userId="me", id=m["id"], format="metadata", metadataHeaders=["Subject", "From"] + ADDRESS_HEADERS
         ).execute()
         headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        if not _from_school(headers, school):
+            continue
+        matched += 1
         subject, sender = headers.get("Subject", "(no subject)"), headers.get("From", "")
         labels = set(msg.get("labelIds", []))
         text = f"{subject} {msg.get('snippet', '')}"
@@ -91,6 +120,7 @@ def urgent_emails(days=7, limit=25):
                 "url": f"https://mail.google.com/mail/u/0/#inbox/{m['id']}",
             })
     found.sort(key=lambda x: (-x["score"], x["subject"]))
+    print(f"(scanned {len(ids)} emails, {matched} came via {school})", file=sys.stderr)
     return found[:limit]
 
 

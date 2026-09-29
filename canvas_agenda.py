@@ -12,6 +12,9 @@ Usage:
     python canvas_agenda.py --gcal          # add/update due dates in Google Calendar
     python canvas_agenda.py --gmail         # list urgent-looking emails (read-only)
 
+--gmail only looks at mail forwarded from your school mailbox. Set SCHOOL_EMAIL=you@ucsd.edu
+(default: any @ucsd.edu address).
+
 --gcal / --gmail need the Google setup described in google_tools.py.
 """
 import argparse
@@ -184,7 +187,7 @@ def main():
     if args.gmail:
         import google_tools
         print("\n=== Urgent-looking emails (last 7 days) ===")
-        emails = google_tools.urgent_emails()
+        emails = google_tools.urgent_emails(school=os.environ.get("SCHOOL_EMAIL", "@ucsd.edu"))
         if not emails:
             print("  (none)")
         for e in emails:
