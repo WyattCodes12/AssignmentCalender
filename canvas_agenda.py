@@ -9,6 +9,10 @@ Usage:
     python canvas_agenda.py                 # next 14 days
     python canvas_agenda.py --days 30
     python canvas_agenda.py --ics out.ics   # also write a calendar file
+    python canvas_agenda.py --gcal          # add/update due dates in Google Calendar
+    python canvas_agenda.py --gmail         # list urgent-looking emails (read-only)
+
+--gcal / --gmail need the Google setup described in google_tools.py.
 """
 import argparse
 import json
@@ -158,6 +162,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--days", type=int, default=14)
     p.add_argument("--ics", help="also write assignment due dates to this .ics file")
+    p.add_argument("--gcal", action="store_true", help="add/update assignment due dates in Google Calendar")
+    p.add_argument("--gmail", action="store_true", help="list urgent-looking emails from the last 7 days")
     args = p.parse_args()
 
     base, token = os.environ.get("CANVAS_BASE_URL"), os.environ.get("CANVAS_TOKEN")
@@ -169,6 +175,21 @@ def main():
     if args.ics:
         write_ics(args.ics, assignments)
         print(f"\nWrote {args.ics}")
+
+    if args.gcal:
+        import google_tools
+        created, updated = google_tools.sync_calendar(assignments)
+        print(f"\nGoogle Calendar: {created} created, {updated} updated")
+
+    if args.gmail:
+        import google_tools
+        print("\n=== Urgent-looking emails (last 7 days) ===")
+        emails = google_tools.urgent_emails()
+        if not emails:
+            print("  (none)")
+        for e in emails:
+            flag = "*" if e["unread"] else " "
+            print(f" {flag} {e['sender']}: {e['subject']}\n      {e['snippet']}\n      {e['url']}")
 
 
 if __name__ == "__main__":
